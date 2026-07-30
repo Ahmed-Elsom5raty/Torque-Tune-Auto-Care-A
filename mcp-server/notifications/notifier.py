@@ -9,7 +9,14 @@ def inventory_updated(part_id:int,quantity:int):
         "part_id":part_id,
         "new_quantity":quantity,
     }
-
+    
+def spare_part_added(part_id:int):
+    return {
+        "event": "inventory.part.added",
+        "message": "Spare part added successfully",
+        "part_id": part_id,
+    }
+    
 def spare_part_deleted(part_id:int):
     return{
         "event":"inventory.part_deleted",
