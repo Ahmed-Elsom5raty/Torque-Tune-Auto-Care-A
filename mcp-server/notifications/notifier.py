@@ -10,7 +10,7 @@ def inventory_updated(part_id:int,quantity:int):
         "new_quantity":quantity,
     }
 
-def spare_part_delated(part_id:int):
+def spare_part_deleted(part_id:int):
     return{
         "event":"inventory.part_deleted",
         "message":"Spare part deleted successfully",
