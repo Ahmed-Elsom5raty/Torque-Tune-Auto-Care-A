@@ -34,3 +34,10 @@ INSERT INTO SpareParts (part_name, part_number, category_id, supplier_id, quanti
 INSERT INTO AlternativeParts (part_id, alternative_part_id) VALUES
 (5, 6),
 (6, 5);
+
+-- InventoryLogs
+INSERT INTO InventoryLogs (part_id, user_id, old_quantity, new_quantity, action, reason) VALUES
+(1, 1, 20, 12, 'decrease', 'Used in repair job #4521 - front brake replacement'),
+(6, 1, 5, 10, 'increase', 'New stock received from CairoParts Trading'),
+(3, 1, 8, 0, 'decrease', 'Emergency repair - brake disc stock depleted'),
+(4, 2, 6, 3, 'decrease', 'Timing belt kit used in scheduled maintenance');
