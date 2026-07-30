@@ -1,7 +1,7 @@
 try:
-    from mcp.server.fastmcp import Context
+    from mcp.server.fastmcp import FastMCP, Context
 except ImportError:
-    from fastmcp import Context
+    from fastmcp import FastMCP, Context
 
 from app import mcp
 from databases.db import get_connection
@@ -34,7 +34,7 @@ def _part_exists(cursor, part_id: int) -> bool:
 
 
 # -----------------------------
-# Write Tools
+# Update Inventory
 # -----------------------------
 
 @mcp.tool()
@@ -55,8 +55,22 @@ def update_inventory(
     cursor = conn.cursor()
 
     try:
-        if not _part_exists(cursor, part_id):
+        # Get current quantity
+        cursor.execute(
+            "SELECT quantity FROM SpareParts WHERE id = ?",
+            (part_id,)
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
             raise ValueError("Spare part not found.")
+
+        old_quantity = row[0]
+
+        # TODO:
+        # MCP Elicitation confirmation will be added here
+        # for risky inventory changes.
 
         cursor.execute(
             """
@@ -78,6 +92,10 @@ def update_inventory(
         conn.close()
 
 
+# -----------------------------
+# Add Spare Part
+# -----------------------------
+
 @mcp.tool()
 def add_spare_part(
     part_id: int | None,
@@ -87,6 +105,7 @@ def add_spare_part(
 ):
     """
     Add a new spare part to the inventory.
+    Only managers and admins are allowed.
     """
 
     require_manager(user_role)
@@ -99,6 +118,7 @@ def add_spare_part(
     cursor = conn.cursor()
 
     try:
+        # Insert with manually provided ID
         if part_id is not None:
 
             if _part_exists(cursor, part_id):
@@ -113,6 +133,7 @@ def add_spare_part(
                 (part_id, part_name, quantity)
             )
 
+        # Let database generate the ID
         else:
 
             cursor.execute(
@@ -137,6 +158,10 @@ def add_spare_part(
         conn.close()
 
 
+# -----------------------------
+# Delete Spare Part
+# -----------------------------
+
 @mcp.tool()
 def delete_spare_part(
     part_id: int,
@@ -144,6 +169,7 @@ def delete_spare_part(
 ):
     """
     Delete a spare part from the inventory.
+    Only managers and admins are allowed.
     """
 
     require_manager(user_role)
@@ -156,7 +182,10 @@ def delete_spare_part(
             raise ValueError("Spare part not found.")
 
         cursor.execute(
-            "DELETE FROM SpareParts WHERE id = ?",
+            """
+            DELETE FROM SpareParts
+            WHERE id = ?
+            """,
             (part_id,)
         )
 
@@ -167,6 +196,10 @@ def delete_spare_part(
     finally:
         conn.close()
 
+
+# -----------------------------
+# Generate Inventory Report
+# -----------------------------
 
 @mcp.tool()
 async def generate_inventory_report(ctx: Context):
