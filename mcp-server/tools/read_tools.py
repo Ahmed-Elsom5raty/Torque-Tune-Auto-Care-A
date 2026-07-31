@@ -4,7 +4,6 @@ except ImportError:
     from fastmcp import FastMCP
 from databases.db import get_connection
 
-from server import mcp
 from app import mcp
 
 @mcp.tool()
