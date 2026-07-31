@@ -4,12 +4,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Make mcp-server importable when pytest is run from the project root
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+MCP_SERVER = PROJECT_ROOT / "mcp-server"
 
-
+sys.path.insert(0, str(MCP_SERVER))
 # ============================================================
 # READ TOOLS
 # ============================================================
@@ -203,7 +201,19 @@ class TestAddSparePart:
 
         mock_require_manager.assert_called_once_with("manager")
 
-        cursor.execute.assert_called_once()
+        calls = cursor.execute.call_args_list
+
+        assert calls[0].args == (
+            "SELECT 1 FROM SpareParts WHERE id = ?",
+            (10,)
+            )
+
+        assert "INSERT INTO SpareParts" in calls[1].args[0]
+        assert calls[1].args[1] == (
+            10,
+            "Brake Pad",
+            20
+        )
 
         conn.commit.assert_called_once()
         conn.close.assert_called_once()
