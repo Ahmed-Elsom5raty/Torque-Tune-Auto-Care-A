@@ -10,16 +10,20 @@ def inventory_updated(part_id:int,quantity:int):
         "new_quantity":quantity,
     }
     
-def spare_part_added(part_id:int):
-    return {
+def spare_part_added(part_id:int, part_name:str | None = None):
+    payload = {
         "event": "inventory.part.added",
         "message": "Spare part added successfully",
         "part_id": part_id,
     }
-    
+    if part_name is not None:
+        payload["part_name"] = part_name
+    return payload
+
+
 def spare_part_deleted(part_id:int):
     return{
-        "event":"inventory.part_deleted",
+        "event":"inventory.part.deleted",
         "message":"Spare part deleted successfully",
         "part_id":part_id,
     }

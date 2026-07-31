@@ -29,9 +29,10 @@ class ElicitationRequired:
 
 def authorize_update_inventory(user_role: str) -> None:
     """Handler-level authorization check, independent of the schema."""
-    if user_role != "manager":
+    normalized_role = user_role.lower()
+    if normalized_role not in {"manager", "admin"}:
         raise AuthorizationError(
-            "Only users with role 'manager' may call update_inventory. "
+            "Only users with role 'manager' or 'admin' may call update_inventory. "
             f"Caller has role '{user_role}'."
         )
 

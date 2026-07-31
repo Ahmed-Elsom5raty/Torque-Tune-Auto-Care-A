@@ -2,7 +2,12 @@
 Progress tracking helpers for the MCP server.
 """
 
-from mcp.server.fastmcp import Context
+try:
+    from mcp.server.fastmcp import Context
+except ImportError:  # pragma: no cover - exercised in lightweight test environments
+    from typing import Any
+
+    Context = Any
 
 
 async def report_progress(
