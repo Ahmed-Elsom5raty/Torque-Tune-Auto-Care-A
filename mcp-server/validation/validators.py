@@ -37,6 +37,28 @@ def authorize_update_inventory(user_role: str) -> None:
         )
 
 
+def compute_new_quantity(action: Action, quantity: int, current_quantity: int) -> int:
+    """
+    Pure arithmetic for the resulting quantity. Shared by validate_update_inventory
+    and the handler, so the handler never has to re-derive this on its own.
+    """
+    if action == "set":
+        if quantity < 0:
+            raise ValidationError("Quantity cannot be set to a negative value.")
+        return quantity
+    elif action == "increase":
+        return current_quantity + quantity
+    elif action == "decrease":
+        new_quantity = current_quantity - quantity
+        if new_quantity < 0:
+            raise ValidationError(
+                f"Cannot decrease by {quantity}: only {current_quantity} in stock."
+            )
+        return new_quantity
+    else:
+        raise ValidationError(f"Unknown action '{action}'.")
+
+
 def validate_update_inventory(
     action: Action,
     quantity: int,
@@ -56,20 +78,7 @@ def validate_update_inventory(
     if not reason or not reason.strip():
         raise ValidationError("A non-empty reason is required for every inventory change.")
 
-    if action == "set":
-        if quantity < 0:
-            raise ValidationError("Quantity cannot be set to a negative value.")
-        new_quantity = quantity
-    elif action == "increase":
-        new_quantity = current_quantity + quantity
-    elif action == "decrease":
-        new_quantity = current_quantity - quantity
-        if new_quantity < 0:
-            raise ValidationError(
-                f"Cannot decrease by {quantity}: only {current_quantity} in stock."
-            )
-    else:
-        raise ValidationError(f"Unknown action '{action}'.")
+    new_quantity = compute_new_quantity(action, quantity, current_quantity)
 
     if new_quantity == 0 and current_quantity > 0:
         return ElicitationRequired(

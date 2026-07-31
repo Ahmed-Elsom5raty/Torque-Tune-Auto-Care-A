@@ -1,6 +1,3 @@
-from mcp.server import elicitation
-
-
 def build_inventory_confirmation(
     part_id: int,
     old_quantity: int,
