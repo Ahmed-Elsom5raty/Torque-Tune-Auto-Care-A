@@ -26,6 +26,14 @@ class FastMCP:
 
         return decorator
 
+    def resource(self, uri: str) -> Callable:
+        def decorator(fn: Callable) -> Callable:
+            self._resources = getattr(self, "_resources", {})
+            self._resources[uri] = fn
+            return fn
+
+        return decorator
+
     def run(self) -> None:
         return None
 
