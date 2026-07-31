@@ -22,6 +22,8 @@ class FastMCP:
 
     def tool(self) -> Callable:
         def decorator(fn: Callable) -> Callable:
+            self._tools = getattr(self, "_tools", {})
+            self._tools[fn.__name__] = fn
             return fn
 
         return decorator
