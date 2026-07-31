@@ -1,29 +1,56 @@
-# Torque-Tune-Auto-Care-A
+# Torque Tune Auto Care
 
-Temp name
+An MCP-based Spare Parts Inventory Management System for automotive repair businesses.
 
-## Database (databases/)
+## Overview
 
-**Engine:** SQL Server (SSMS)
+Torque Tune Auto Care provides a Model Context Protocol (MCP) server for managing spare parts inventory in an automotive repair environment.
 
-**Company:** AutoFix Repair Chain — technicians need to check spare parts
-availability, find alternatives, and adjust stock without touching the
-database directly. An MCP server sits between the LLM and this database.
+The system allows authorized users to search for spare parts, check stock levels, manage inventory, receive inventory notifications, and generate inventory reports.
 
-**Tables (6):**
-- `Users` — technician/manager roles (drives authorization)
-- `Categories` — part categories (Brakes, Engine, Electrical, Suspension)
-- `Suppliers` — supplier contact info
-- `SpareParts` — core inventory table, includes `minimum_stock` and `status`
-- `AlternativeParts` — interchangeable parts (self-referencing)
-- `InventoryLogs` — full audit trail of every stock change (who, when, old→new, why)
+## Features
 
-**Edge cases in seed data:**
-- A part at 0 quantity (out of stock)
-- A part below `minimum_stock` (low stock)
-- A discontinued part (never restocked, never suggested as an alternative)
-- Two parts linked as valid alternatives
+- 🔍 Search for spare parts
+- 📦 Check spare part stock
+- ➕ Add new spare parts
+- ✏️ Update inventory quantities
+- 🗑️ Delete spare parts
+- 🔄 Suggest alternative spare parts
+- 📊 Generate inventory reports
+- 🔐 Role-based authorization
+- 🔔 Inventory notifications
+- 📈 Progress tracking
+- 💬 MCP Elicitation for sensitive operations
+- 🧪 Automated testing
 
-**Files:** `databases/shcema.sql` (table definitions), `databases/seed.sql` (sample data)
+## MCP Tools
 
+### Read Tools
 
+- `search_spare_part`
+- `check_stock`
+- `suggest_alternative_part_by_name`
+- `suggest_alternative_part_by_id`
+
+### Write Tools
+
+- `add_spare_part`
+- `update_inventory`
+- `delete_spare_part`
+- `generate_inventory_report`
+
+## Architecture
+
+```text
+Client
+   │
+   ▼
+MCP Server
+   │
+   ├── Authentication & Authorization
+   ├── Read Tools
+   ├── Write Tools
+   ├── Notifications
+   ├── Progress Tracking
+   ├── Elicitation
+   └── Validation
