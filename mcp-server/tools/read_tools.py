@@ -14,7 +14,7 @@ def search_spare_part(part_name :str):
     """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM SpareParts WHERE name LIKE ?", (f"%{part_name}%",))
+    cursor.execute("SELECT * FROM SpareParts WHERE part_name LIKE ?", (f"%{part_name}%",))
     results = cursor.fetchall()
     conn.close()
     if not results:
@@ -63,4 +63,3 @@ def suggest_alternative(part_id: int):
         raise ValueError("No alternative parts found for the given part ID.")
     else:
         return result
-    
