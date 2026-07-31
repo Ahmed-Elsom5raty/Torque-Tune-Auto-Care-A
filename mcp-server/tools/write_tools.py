@@ -7,6 +7,16 @@ from app import mcp
 from databases.db import get_connection
 from auth.authorization import require_manager
 
+from validation.validators import (
+    authorize_update_inventory,
+    validate_update_inventory,
+    compute_new_quantity,
+    ElicitationRequired,
+    ValidationError,
+    AuthorizationError,
+)
+from elicitation.elicitation import build_inventory_confirmation
+
 from notifications import (
     inventory_updated,
     spare_part_added,
@@ -38,55 +48,93 @@ def _part_exists(cursor, part_id: int) -> bool:
 # -----------------------------
 
 @mcp.tool()
-def update_inventory(
+async def update_inventory(
     part_id: int,
-    new_quantity: int,
-    user_role: str
+    action: str,
+    quantity: int,
+    reason: str,
+    user_id: int,
+    ctx: Context,
 ):
     """
-    Update the quantity of a spare part.
-    Only managers and admins are allowed.
+    Adjust the stock quantity of a spare part. Manager role required.
+    Large decreases or decreases that would zero out stock require
+    human confirmation via elicitation before they are applied.
     """
-
-    require_manager(user_role)
-    _ensure_non_negative(new_quantity)
 
     conn = get_connection()
     cursor = conn.cursor()
 
     try:
-        # Get current quantity
+        # Authorization happens in the handler, against the role the server
+        # looks up for user_id — never against a role the caller merely claims.
+        cursor.execute("SELECT role FROM Users WHERE id = ?", (user_id,))
+        user_row = cursor.fetchone()
+        if user_row is None:
+            raise AuthorizationError(f"User {user_id} not found.")
+        authorize_update_inventory(user_row[0])
+
         cursor.execute(
-            "SELECT quantity FROM SpareParts WHERE id = ?",
+            "SELECT quantity, status FROM SpareParts WHERE id = ?",
             (part_id,)
         )
-
-        row = cursor.fetchone()
-
-        if row is None:
+        part_row = cursor.fetchone()
+        if part_row is None:
             raise ValueError("Spare part not found.")
 
-        old_quantity = row[0]
+        current_quantity, part_status = part_row
 
-        # TODO:
-        # MCP Elicitation confirmation will be added here
-        # for risky inventory changes.
+        outcome = validate_update_inventory(
+            action=action,
+            quantity=quantity,
+            current_quantity=current_quantity,
+            part_status=part_status,
+            reason=reason,
+        )
+
+        if isinstance(outcome, ElicitationRequired):
+            confirmation = build_inventory_confirmation(
+                part_id=part_id,
+                old_quantity=outcome.proposed_old_quantity,
+                new_quantity=outcome.proposed_new_quantity,
+            )
+
+            response = await ctx.elicit(
+                message=confirmation["message"],
+                schema={
+                    "type": "object",
+                    "properties": {"confirm": {"type": "boolean"}},
+                    "required": ["confirm"],
+                },
+            )
+
+            if response.action != "accept" or not response.data:
+                return {
+                    "success": False,
+                    "message": "Inventory change cancelled — confirmation was not granted.",
+                }
+
+            new_quantity = outcome.proposed_new_quantity
+        else:
+            new_quantity = compute_new_quantity(action, quantity, current_quantity)
+
+        cursor.execute(
+            "UPDATE SpareParts SET quantity = ? WHERE id = ?",
+            (new_quantity, part_id)
+        )
 
         cursor.execute(
             """
-            UPDATE SpareParts
-            SET quantity = ?
-            WHERE id = ?
+            INSERT INTO InventoryLogs
+            (part_id, user_id, old_quantity, new_quantity, action, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (new_quantity, part_id)
+            (part_id, user_id, current_quantity, new_quantity, action, reason)
         )
 
         conn.commit()
 
-        return inventory_updated(
-            part_id,
-            new_quantity
-        )
+        return inventory_updated(part_id, new_quantity)
 
     finally:
         conn.close()

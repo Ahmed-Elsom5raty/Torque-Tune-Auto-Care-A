@@ -4,8 +4,11 @@ from app import mcp
 from tools import read_tools
 from tools import write_tools
 
-# Import resources
-from resources import resources
+# Import resources when available
+try:
+    from resources import resources  # type: ignore
+except ImportError:
+    resources = None
 
 # Import notifications
 from notifications import notifier
