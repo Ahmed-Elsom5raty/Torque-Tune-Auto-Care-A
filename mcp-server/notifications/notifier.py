@@ -43,7 +43,7 @@ READ_ONLY_TOOLS = {
     "check_stock",
     "suggest_alternative",
     "generate_inventory_report",
-    "search_policy"
+
 }
 MANAGER_ONLY_TOOLS = {"update_inventory", "add_spare_part", "delete_spare_part"}
 
