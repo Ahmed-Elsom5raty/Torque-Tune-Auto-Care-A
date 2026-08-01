@@ -6,6 +6,8 @@ from tools import write_tools
 
 # Import resources so they are registered with the MCP server
 from resources import resources  # noqa: F401
+# Import RAG tool (Option A: search over the warehouse & inventory policy)
+from rag import search_policy_tool  # noqa: F401
 
 # Import notifications
 from notifications import notifier
