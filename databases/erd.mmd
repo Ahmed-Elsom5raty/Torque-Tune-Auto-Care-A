@@ -1,0 +1,59 @@
+erDiagram
+    Users ||--o{ InventoryLogs : "makes"
+    Categories ||--o{ SpareParts : "groups"
+    Suppliers ||--o{ SpareParts : "supplies"
+    SpareParts ||--o{ InventoryLogs : "has history"
+    SpareParts ||--o{ AlternativeParts : "part_id"
+    SpareParts ||--o{ AlternativeParts : "alternative_part_id"
+
+    Users {
+        int id PK
+        string name
+        string email
+        string role "technician or manager"
+        datetime created_at
+    }
+
+    Categories {
+        int id PK
+        string name
+        string description
+    }
+
+    Suppliers {
+        int id PK
+        string name
+        string phone
+        string email
+        string address
+    }
+
+    SpareParts {
+        int id PK
+        string part_name
+        string part_number
+        int category_id FK
+        int supplier_id FK
+        int quantity
+        decimal price
+        string location
+        int minimum_stock
+        string status "active or discontinued"
+    }
+
+    AlternativeParts {
+        int id PK
+        int part_id FK
+        int alternative_part_id FK
+    }
+
+    InventoryLogs {
+        int id PK
+        int part_id FK
+        int user_id FK
+        int old_quantity
+        int new_quantity
+        string action "increase, decrease, set"
+        string reason
+        datetime created_at
+    }
