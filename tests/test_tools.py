@@ -334,6 +334,7 @@ class TestDeleteSparePart:
 
         conn.commit.assert_not_called()
         conn.close.assert_called_once()
+        
 
 
 # ============================================================

@@ -6,7 +6,7 @@ except ImportError:
 from app import mcp
 from databases.db import get_connection
 from auth.authorization import require_manager
-
+# from validation.schemas import SearchKnowledgeBaseInput
 from validation.validators import (
     authorize_update_inventory,
     validate_update_inventory,
@@ -24,7 +24,7 @@ from notifications import (
 )
 
 from progress import report_inventory_progress
-
+# from option_b_memory_example import load_memory_context, maybe_remember
 
 # -----------------------------
 # Helper Functions
@@ -292,8 +292,7 @@ async def generate_inventory_report(ctx: Context):
             "total_parts": total_parts,
             "total_quantity": total_quantity,
             "average_price": average_price
-        }
-
+        }        
         # Completed
         await report_inventory_progress(ctx, 100)
 
@@ -301,3 +300,26 @@ async def generate_inventory_report(ctx: Context):
 
     finally:
         conn.close()
+        
+        
+
+# def handle_user_message(user_message: str, entity_id: str):
+#     # Load relevant past memories for this entity
+#     memory_context = load_memory_context(entity_id, user_message)
+
+#     # Build prompt with memory
+#     prompt = f"""
+#     Previous relevant notes:
+#     {memory_context}
+
+#     User message:
+#     {user_message}
+#     """
+
+#     # Generate reply from your agent/model
+#     reply = generate_reply(prompt)
+
+#     # Save important facts for future sessions
+#     maybe_remember(user_message, entity_id)
+
+#     return reply
