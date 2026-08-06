@@ -58,10 +58,16 @@ def _approx_tokens(text: str) -> int:
 def _mock_call(system: str, user: str, want_json: bool) -> tuple[str, int, int]:
     in_tokens = _approx_tokens(system) + _approx_tokens(user)
 
-    if want_json:
-        text = _mock_decision(user)
-    else:
+    if not want_json:
         text = _mock_answer(user)
+    elif "retrieve_again" in user:
+        text = _mock_decision(user)
+    elif "Is the passage below relevant" in user:
+        text = _mock_relevance(user)
+    elif "Is the answer below fully supported" in user:
+        text = _mock_support(user)
+    else:
+        text = _mock_decision(user)  # generic JSON fallback
 
     out_tokens = _approx_tokens(text)
     return text, in_tokens, out_tokens
@@ -70,20 +76,42 @@ def _mock_call(system: str, user: str, want_json: bool) -> tuple[str, int, int]:
 def _mock_answer(user_prompt: str) -> str:
     """Extractive stand-in for 'generate': pulls the context block out of
     the prompt and returns its most query-relevant sentences. A real LLM
-    call would paraphrase/synthesize instead of extracting verbatim."""
+    call would paraphrase/synthesize instead of extracting verbatim.
+
+    Sentences are scored with a mini-IDF: a query term that appears in
+    only one retrieved section (like an exact identifier "wt-317") counts
+    for more than a term that appears in every section (like "warranty"),
+    otherwise generic words drown out the one section that actually
+    matches the identifier being asked about."""
     context_match = re.search(r"Context:\n(.*?)\n\nQuestion:", user_prompt, re.S)
     question_match = re.search(r"Question:\n(.*)", user_prompt, re.S)
     context = context_match.group(1) if context_match else user_prompt
     question = question_match.group(1).strip() if question_match else ""
 
-    q_tokens = set(re.findall(r"[a-z0-9]+", question.lower()))
-    sentences = re.split(r"(?<=[.!?])\s+", context)
-    scored = sorted(
-        sentences,
-        key=lambda s: len(q_tokens & set(re.findall(r"[a-z0-9]+", s.lower()))),
-        reverse=True,
-    )
-    best = [s.strip() for s in scored[:3] if s.strip()]
+    sections = context.split("\n\n---\n\n")
+    q_tokens = set(re.findall(r"[a-z0-9-]+", question.lower()))
+
+    # term -> number of distinct sections it appears in (mini document freq)
+    doc_freq: dict[str, int] = {}
+    for section in sections:
+        for tok in set(re.findall(r"[a-z0-9-]+", section.lower())):
+            doc_freq[tok] = doc_freq.get(tok, 0) + 1
+    n_sections = max(len(sections), 1)
+
+    def term_weight(tok: str) -> float:
+        return n_sections / doc_freq.get(tok, n_sections)
+
+    scored = []
+    for section in sections:
+        for sentence in re.split(r"(?<=[.!?])\s+", section):
+            s_tokens = set(re.findall(r"[a-z0-9-]+", sentence.lower()))
+            hit = q_tokens & s_tokens
+            score = sum(term_weight(t) for t in hit)
+            if sentence.strip():
+                scored.append((score, sentence.strip()))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best = [s for score, s in scored[:3] if score > 0]
     return " ".join(best) if best else "No answer could be derived from the retrieved context."
 
 
@@ -103,3 +131,48 @@ def _mock_decision(user_prompt: str) -> str:
         "next_query": None,
     }
     return json.dumps(decision)
+
+
+_STOPWORDS = {
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "what", "which", "who", "whom", "this", "that", "these", "those",
+    "does", "do", "did", "say", "says", "said", "to", "of", "in", "on",
+    "for", "and", "or", "but", "with", "about", "it", "its", "as", "at",
+}
+
+
+def _kw_tokens(text: str) -> set[str]:
+    raw = set(re.findall(r"[a-z0-9-]+", text.lower()))
+    return raw - _STOPWORDS
+
+
+def _mock_relevance(user_prompt: str) -> str:
+    """Mock for self_rag_check's post-retrieval relevance check."""
+    q_match = re.search(r"Question:\s*(.*?)\n", user_prompt)
+    p_match = re.search(r"Passage:\n(.*)", user_prompt, re.S)
+    question = q_match.group(1) if q_match else ""
+    passage = p_match.group(1) if p_match else user_prompt
+
+    overlap = _kw_tokens(question) & _kw_tokens(passage)
+    relevant = len(overlap) >= 1
+    return json.dumps({
+        "relevant": relevant,
+        "reasoning": f"mock heuristic: shared terms {sorted(overlap)}" if overlap else "mock heuristic: no shared terms",
+    })
+
+
+def _mock_support(user_prompt: str) -> str:
+    """Mock for self_rag_check's post-generation support check."""
+    c_match = re.search(r"Context:\n(.*?)\n\nAnswer:", user_prompt, re.S)
+    a_match = re.search(r"Answer:\n(.*)", user_prompt, re.S)
+    context = c_match.group(1) if c_match else ""
+    answer = a_match.group(1) if a_match else ""
+
+    a_tokens = _kw_tokens(answer)
+    c_tokens = _kw_tokens(context)
+    ratio = len(a_tokens & c_tokens) / len(a_tokens) if a_tokens else 0.0
+    supported = ratio >= 0.5
+    return json.dumps({
+        "supported": supported,
+        "reasoning": f"mock heuristic: {ratio:.0%} of answer terms found in context",
+    })
