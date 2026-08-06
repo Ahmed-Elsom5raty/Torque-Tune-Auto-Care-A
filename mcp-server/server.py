@@ -6,6 +6,10 @@ from tools import write_tools
 
 # Import resources so they are registered with the MCP server
 from resources import resources  # noqa: F401
+# Import RAG tool: hybrid search (vector + keyword) over the company
+# knowledge base, verified with a Self-RAG-style check before returning.
+# See retrieval_eval/ for why hybrid was chosen over naive/agentic RAG.
+from rag import search_knowledge_tool  # noqa: F401
 
 # Import notifications
 from notifications import notifier
