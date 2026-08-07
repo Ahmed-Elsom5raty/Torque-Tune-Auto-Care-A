@@ -66,6 +66,10 @@ def _mock_call(system: str, user: str, want_json: bool) -> tuple[str, int, int]:
         text = _mock_relevance(user)
     elif "Is the answer below fully supported" in user:
         text = _mock_support(user)
+    elif "promote_or_drop" in user:
+        text = _mock_promote_or_drop(user)
+    elif "extract_facts" in user:
+        text = _mock_extract_facts(user)
     else:
         text = _mock_decision(user)  # generic JSON fallback
 
@@ -159,6 +163,62 @@ def _mock_relevance(user_prompt: str) -> str:
         "relevant": relevant,
         "reasoning": f"mock heuristic: shared terms {sorted(overlap)}" if overlap else "mock heuristic: no shared terms",
     })
+
+
+def _mock_promote_or_drop(user_prompt: str) -> str:
+    """Mock for the promote-or-drop router (memory/router.py). Real prompt
+    asks the model to decide, per short-term-memory message, whether it
+    carries a durable preference/decision/failure worth keeping (-> promote
+    to episodic) or is routine tool chatter (-> drop), with a reason for
+    each. The mock scans for the same class of signal words a human triager
+    would flag, and returns one decision object per numbered message found
+    in the prompt."""
+    messages = re.findall(r"\[(\d+)\]\s*\[(\w+)\]\s*(.*)", user_prompt)
+    keywords = ("prefer", "always", "never", "change", "failed", "instead", "allerg", "warranty")
+    decisions = []
+    for idx, role, content in messages:
+        content_l = content.lower()
+        hit = [k for k in keywords if k in content_l]
+        if hit:
+            decisions.append({
+                "index": int(idx),
+                "decision": "promote",
+                "reason": f"mock heuristic: contains signal word(s) {hit}",
+            })
+        else:
+            decisions.append({
+                "index": int(idx),
+                "decision": "drop",
+                "reason": "mock heuristic: routine tool/dialogue chatter, no durable signal word",
+            })
+    return json.dumps(decisions)
+
+
+def _mock_extract_facts(user_prompt: str) -> str:
+    """Mock for semantic consolidation (memory/semantic_memory.py). Real
+    prompt hands the model a batch of un-consolidated episodes and asks it
+    to return {fact_key, fact_value, reason} objects for anything durable.
+    The mock looks for stated contact-method preferences, since that's the
+    fact class Torque Tune's demo transcript actually exercises (and can
+    genuinely conflict between two episodes, e.g. "email me" then later
+    "call me instead")."""
+    episodes = re.findall(r"\[episode (\d+)\]\s*(.*)", user_prompt)
+    facts = []
+    for idx, content in episodes:
+        content_l = content.lower()
+        if "email" in content_l and not any(w in content_l for w in ("don't email", "stop email", "instead of email")):
+            facts.append({
+                "fact_key": "preferred_communication",
+                "fact_value": "Email",
+                "reason": f"mock heuristic: episode {idx} states an email contact preference",
+            })
+        if any(p in content_l for p in ("call me", "call my cell", "phone instead", "instead of email")):
+            facts.append({
+                "fact_key": "preferred_communication",
+                "fact_value": "Phone",
+                "reason": f"mock heuristic: episode {idx} states a phone contact preference",
+            })
+    return json.dumps(facts)
 
 
 def _mock_support(user_prompt: str) -> str:
