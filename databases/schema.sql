@@ -59,6 +59,10 @@ CREATE TABLE EpisodicMemory (
     event_type NVARCHAR(100) NOT NULL,
     content NVARCHAR(MAX) NOT NULL, -- Stores the JSON representation of the event/action
     promotion_reason NVARCHAR(500) NOT NULL,
+    -- 0 until a separate, periodic consolidation pass (memory/run_consolidation.py)
+    -- has read this episode and tried to extract semantic facts from it. Never set
+    -- by the promote-or-drop router -- that router only ever writes episodes.
+    consolidated BIT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT GETDATE()
 );
 -- Stores consolidated long-term knowledge and user facts with version control
@@ -68,5 +72,14 @@ CREATE TABLE SemanticMemory (
     fact_value NVARCHAR(MAX) NOT NULL, -- Stores the value (e.g., preferred setting)
     version INT NOT NULL DEFAULT 1,
     is_active BIT NOT NULL DEFAULT 1, -- 1 (True) for current active facts, 0 (False) for history
+    -- Why this version was written: a fresh fact, an update, or a resolved
+    -- conflict between two episodes that implied different values. Never blank
+    -- on an update -- see SemanticMemory.update_fact().
+    change_reason NVARCHAR(500) NULL,
+    -- Optional staleness horizon (e.g. a quoted warranty/labor rate that should
+    -- not be trusted forever). NULL = no expiration. Swept by
+    -- SemanticMemory.expire_stale_facts(), run at the start of each
+    -- consolidation pass.
+    expires_at DATETIME NULL,
     updated_at DATETIME NOT NULL DEFAULT GETDATE()
 );
