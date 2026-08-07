@@ -76,6 +76,7 @@ CREATE TABLE EpisodicMemory (
     event_type TEXT NOT NULL,
     content TEXT NOT NULL,
     promotion_reason TEXT NOT NULL,
+    consolidated INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -85,6 +86,8 @@ CREATE TABLE SemanticMemory (
     fact_value TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
     is_active INTEGER NOT NULL DEFAULT 1,
+    change_reason TEXT,
+    expires_at DATETIME,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
