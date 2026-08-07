@@ -4,6 +4,9 @@ except ImportError:
     from fastmcp import FastMCP, Context
 
 from app import mcp
+# Import the global memory manager
+from app import memory_manager
+
 from databases.db import get_connection
 from auth.authorization import require_manager
 # from validation.schemas import SearchKnowledgeBaseInput
@@ -134,6 +137,27 @@ async def update_inventory(
 
         conn.commit()
 
+        # Update the scratchpad to mark the inventory update step as complete
+        memory_manager.scratchpad.complete_step(
+            step="update_inventory",
+            result=f"Updated part {part_id} with action {action} by {quantity}.",
+            result_key=f"inventory_update_{part_id}"
+        )
+        
+        # Save this significant event in the episodic memory
+        memory_manager.episodic.add_episode(
+            event_type="inventory_updated",
+            content={
+                "part_id": part_id,
+                "action": action,
+                "quantity": quantity,
+                "reason": reason,
+                "user_id": user_id,
+                "new_quantity": new_quantity
+            },
+            promotion_reason="Significant stock change executed by user."
+        )
+
         return inventory_updated(part_id, new_quantity)
 
     finally:
@@ -197,6 +221,25 @@ def add_spare_part(
 
         conn.commit()
 
+        # Update scratchpad
+        memory_manager.scratchpad.complete_step(
+            step="add_spare_part",
+            result=f"Added new part: {part_name} with quantity {quantity}.",
+            result_key=f"spare_part_added_{part_id}"
+        )
+        
+        # Add to episodic memory
+        memory_manager.episodic.add_episode(
+            event_type="spare_part_added",
+            content={
+                "part_id": part_id,
+                "part_name": part_name,
+                "quantity": quantity,
+                "user_role": user_role
+            },
+            promotion_reason="New spare part added to the inventory."
+        )
+
         return spare_part_added(
             part_id,
             part_name
@@ -238,6 +281,23 @@ def delete_spare_part(
         )
 
         conn.commit()
+
+        # Update scratchpad
+        memory_manager.scratchpad.complete_step(
+            step="delete_spare_part",
+            result=f"Deleted part ID: {part_id}.",
+            result_key=f"spare_part_deleted_{part_id}"
+        )
+        
+        # Add to episodic memory
+        memory_manager.episodic.add_episode(
+            event_type="spare_part_deleted",
+            content={
+                "part_id": part_id,
+                "user_role": user_role
+            },
+            promotion_reason="Spare part permanently removed from the inventory."
+        )
 
         return spare_part_deleted(part_id)
 
@@ -295,6 +355,20 @@ async def generate_inventory_report(ctx: Context):
         }        
         # Completed
         await report_inventory_progress(ctx, 100)
+
+        # Update scratchpad
+        memory_manager.scratchpad.complete_step(
+            step="generate_inventory_report",
+            result="Inventory report generated successfully.",
+            result_key="latest_inventory_report"
+        )
+        
+        # Add to episodic memory
+        memory_manager.episodic.add_episode(
+            event_type="inventory_report_generated",
+            content=result,
+            promotion_reason="User requested a full inventory summary report."
+        )
 
         return result
 
