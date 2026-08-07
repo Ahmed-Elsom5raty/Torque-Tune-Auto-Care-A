@@ -1,4 +1,4 @@
-import json
+mport json
 from typing import List, Dict, Any
 from databases.db import get_connection
 
@@ -96,5 +96,58 @@ class EpisodicMemory:
             # Reverse to maintain chronological order (oldest to newest) among the recent ones
             episodes.reverse()
             return episodes
+        finally:
+            conn.close()
+
+    def get_unconsolidated_episodes(self) -> List[Dict[str, Any]]:
+        """
+        Episodes the promote-or-drop router has written but no consolidation
+        pass has looked at yet. This is the ONLY feed semantic consolidation
+        reads from -- it is never handed episodes directly by the router, and
+        it is never called synchronously inside add_interaction(). A separate
+        job (memory/run_consolidation.py) calls this on its own schedule.
+        """
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                """
+                SELECT id, event_type, content, promotion_reason, created_at
+                FROM EpisodicMemory
+                WHERE consolidated = 0
+                ORDER BY id ASC
+                """
+            )
+            rows = cursor.fetchall()
+
+            episodes = []
+            for row in rows:
+                episodes.append({
+                    "id": row[0],
+                    "event_type": row[1],
+                    "content": json.loads(row[2]),
+                    "promotion_reason": row[3],
+                    "timestamp": str(row[4]),
+                })
+            return episodes
+        finally:
+            conn.close()
+
+    def mark_consolidated(self, episode_ids: List[int]) -> None:
+        """Flip `consolidated` once a consolidation pass has read these episodes,
+        so the next pass doesn't re-extract the same facts from them."""
+        if not episode_ids:
+            return
+
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            placeholders = ",".join("?" for _ in episode_ids)
+            cursor.execute(
+                f"UPDATE EpisodicMemory SET consolidated = 1 WHERE id IN ({placeholders})",
+                tuple(episode_ids),
+            )
+            conn.commit()
         finally:
             conn.close()
