@@ -198,15 +198,29 @@ async def main(auto_confirm: bool | None = None) -> dict:
     memory_manager.add_interaction("tool_call", "generate_inventory_report()")
     memory_manager.add_interaction("tool_output", report_result)
 
-    # --- final memory state: proves promote-or-drop routing and
-    # consolidation actually fired during this run, not just that the
-    # classes exist. STM has max_capacity=10 and this run logs more than
-    # 10 interactions, so it will have overflowed at least once above. ---
+    # --- final memory state: proves promote-or-drop routing actually fired
+    # during this run, not just that the classes exist. STM has
+    # max_capacity=10 and this run logs more than 10 interactions, so it
+    # will have overflowed at least once above. Semantic memory is
+    # deliberately NOT touched by any of this -- see the consolidation
+    # step below, which is a separate pass on its own schedule. ---
     final_state = memory_manager.retrieve_for_llm()
-    print("\n[memory] final state after the run:")
+    print("\n[memory] state after the live session (before consolidation):")
     print(f"  short-term buffer (unflushed tail): {len(final_state['short_term_memory'])} messages")
     print(f"  episodic memory (promoted so far): {len(memory_manager.episodic.get_all_episodes())} episodes")
-    print(f"  semantic memory (consolidated facts): {final_state['semantic_memory']}")
+    print(f"  semantic memory (before this run's consolidation pass): {final_state['semantic_memory']}")
+
+    # --- semantic consolidation: a genuinely separate, periodic pass, run
+    # here once at the end of the demo to show it firing -- NOT called
+    # from inside add_interaction()/the router above. In production this
+    # runs on its own schedule (see memory/run_consolidation.py), not once
+    # per live session. ---
+    print("\n[memory] running periodic semantic consolidation pass (separate from the live session above)...")
+    consolidation_result = memory_manager.run_consolidation()
+    print(f"  episodes consolidated: {consolidation_result['episodes_consolidated']}")
+    print(f"  facts applied: {consolidation_result['facts_applied']}")
+    print(f"  facts expired: {consolidation_result['expired_facts']}")
+    print(f"  semantic memory (after consolidation): {memory_manager.semantic.get_active_facts()}")
 
     return {
         "search_result": search_result,
@@ -215,6 +229,7 @@ async def main(auto_confirm: bool | None = None) -> dict:
         "update_result": update_result,
         "report_result": report_result,
         "final_memory_state": final_state,
+        "consolidation_result": consolidation_result,
     }
 
 
