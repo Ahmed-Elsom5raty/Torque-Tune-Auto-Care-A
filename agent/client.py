@@ -42,9 +42,9 @@ for path in (str(ROOT), str(MCP_SERVER_ROOT), str(AGENT_ROOT)):
 
 def wire_demo_database() -> None:
     """
-    Point databases.db.get_connection at the seeded in-memory SQLite demo
-    DB. Must run before anything imports `from databases.db import
-    get_connection`, since that binds the function at import time.
+    Point databases.db.get_connection at the seeded SQLite demo DB. Must
+    run before anything imports `from databases.db import get_connection`,
+    since that binds the function at import time.
     """
     import databases.db as db
     from demo_db import build_demo_connection
@@ -58,6 +58,7 @@ import server  # noqa: E402  (registers tools + resources, wires negotiation ont
 from negotiation import negotiation  # noqa: E402
 from notifications import notifier  # noqa: E402
 from fastmcp import ElicitationResult  # noqa: E402
+from app import memory_manager  # noqa: E402  (same instance write_tools.py writes episodic/scratchpad into)
 
 
 class CLIContext:
@@ -107,6 +108,14 @@ def list_visible_tools(role: str) -> list:
 
 
 async def main(auto_confirm: bool | None = None) -> dict:
+    # Fresh, freshly-seeded database AND fresh in-process memory state for
+    # this session -- so running the demo twice (or the test suite running
+    # it twice) doesn't leak inventory/episodic/semantic state between runs.
+    from demo_db import reset_demo_database
+    reset_demo_database()
+    memory_manager.stm.clear()
+    memory_manager.scratchpad.clear()
+
     session_id = "demo-session-1"
     capabilities = run_handshake(session_id)
 
@@ -120,9 +129,12 @@ async def main(auto_confirm: bool | None = None) -> dict:
     role = "technician"
     print(f"\n[session] starting as '{role}'")
     print(f"[tools/list] visible tools: {list_visible_tools(role)}")
+    memory_manager.add_interaction("user", "Technician session started for customer #4471, vehicle in for brake service.")
 
     search_result = server.mcp._tools["search_spare_part"]("Brake")
     print(f"[tools/call] search_spare_part('Brake') -> {search_result}")
+    memory_manager.add_interaction("tool_call", "search_spare_part('Brake')")
+    memory_manager.add_interaction("tool_output", search_result)
 
     # --- role change: manager authenticates, tool set genuinely changes ---
     print(f"\n[session] '{session_id}' authenticates as 'manager'")
@@ -131,11 +143,36 @@ async def main(auto_confirm: bool | None = None) -> dict:
         print(f"[notification] {notification} -- refreshing tool list")
     role = "manager"
     print(f"[tools/list] visible tools: {list_visible_tools(role)}")
+    memory_manager.add_interaction("assistant", "Session escalated to manager role; write tools now visible.")
 
     # --- resource: static policy, read once rather than called ---
     policy_text = server.mcp._resources["warehouse://policy/inventory"]()
     print(f"\n[resources/read] warehouse://policy/inventory ({len(policy_text)} chars)")
     print(f"  first line: {policy_text.splitlines()[0]}")
+    memory_manager.add_interaction("tool_output", f"[resource] warehouse://policy/inventory: {policy_text.splitlines()[0]}")
+
+    # --- RAG: ground the "do we charge for this part?" decision in the
+    # knowledge base BEFORE acting, instead of guessing. This is the same
+    # search_company_knowledge tool server.py registers (hybrid RAG +
+    # Self-RAG verification, see retrieval_eval/) -- called here from the
+    # live agent loop, not just importable-but-unused. ---
+    warranty_question = "What's the warranty window under WT-317?"
+    print(f"\n[tools/call] search_company_knowledge({warranty_question!r})")
+    knowledge_result = server.mcp._tools["search_company_knowledge"](warranty_question)
+    print(f"[tools/call result] grounded={knowledge_result['grounded']} answer={knowledge_result['answer']!r}")
+    print(f"  sources: {knowledge_result['sources']}")
+    memory_manager.add_interaction("tool_call", f"search_company_knowledge({warranty_question!r})")
+    memory_manager.add_interaction("tool_output", knowledge_result)
+
+    # --- memory: pull everything the agent knows before deciding whether
+    # to bill the customer for the part, instead of acting on the current
+    # tool call alone. ---
+    memory_context = memory_manager.retrieve_for_llm()
+    print("\n[memory] context pulled before billing decision:")
+    print(f"  scratchpad: {memory_context['scratchpad']}")
+    print(f"  semantic facts: {memory_context['semantic_memory']}")
+    print(f"  recent episodes: {len(memory_context['episodic_memory'])}")
+    print(f"  short-term buffer size: {len(memory_context['short_term_memory'])}")
 
     # --- write tool that trips the elicitation trigger ---
     # Rear Brake Pad Set (part_id=2) starts at quantity=2; decreasing by 2
@@ -151,17 +188,33 @@ async def main(auto_confirm: bool | None = None) -> dict:
         ctx=ctx,
     )
     print(f"[tools/call result] {update_result}")
+    memory_manager.add_interaction("tool_call", "update_inventory(part_id=2, action='decrease', quantity=2)")
+    memory_manager.add_interaction("tool_output", update_result)
 
     # --- long-running call with real progress reporting ---
     print("\n[tools/call] generate_inventory_report()")
     report_result = await server.mcp._tools["generate_inventory_report"](ctx=ctx)
     print(f"[tools/call result] {report_result}")
+    memory_manager.add_interaction("tool_call", "generate_inventory_report()")
+    memory_manager.add_interaction("tool_output", report_result)
+
+    # --- final memory state: proves promote-or-drop routing and
+    # consolidation actually fired during this run, not just that the
+    # classes exist. STM has max_capacity=10 and this run logs more than
+    # 10 interactions, so it will have overflowed at least once above. ---
+    final_state = memory_manager.retrieve_for_llm()
+    print("\n[memory] final state after the run:")
+    print(f"  short-term buffer (unflushed tail): {len(final_state['short_term_memory'])} messages")
+    print(f"  episodic memory (promoted so far): {len(memory_manager.episodic.get_all_episodes())} episodes")
+    print(f"  semantic memory (consolidated facts): {final_state['semantic_memory']}")
 
     return {
         "search_result": search_result,
         "notification": notification,
+        "knowledge_result": knowledge_result,
         "update_result": update_result,
         "report_result": report_result,
+        "final_memory_state": final_state,
     }
 
 
