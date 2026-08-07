@@ -1,0 +1,31 @@
+# Torque Tune Auto Care -- Memory & RAG Lab
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# ANTHROPIC_API_KEY is read from a local .env file (see .env.example) by
+# mcp-server/rag/llm_client.py. Without it, the router, semantic
+# consolidation, and every RAG architecture fall back to the documented
+# mocks described in that file -- everything still runs end to end.
+
+# --- Vector store (mcp-server/rag/vector_store.py) ---
+hnswlib>=0.8.0
+numpy>=1.26.0
+
+# --- Embeddings: TF-IDF + Truncated SVD (mcp-server/rag/embeddings.py) ---
+scikit-learn>=1.4.0
+
+# --- Hybrid search / BM25 keyword scoring ---
+rank_bm25>=0.2.2
+
+# --- Real LLM calls when ANTHROPIC_API_KEY is set (rag/llm_client.py) ---
+anthropic>=0.40.0
+
+# --- Config / validation ---
+pydantic>=2.6.0
+
+# --- Loading ANTHROPIC_API_KEY from .env locally ---
+python-dotenv>=1.0.1
+
+# --- Tests ---
+pytest>=8.0.0
