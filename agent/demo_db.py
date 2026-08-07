@@ -9,7 +9,9 @@ once a real SQL Server connection is configured in databases/db.py, the
 agent should be pointed at that instead (see agent/client.py).
 """
 
+import os
 import sqlite3
+import tempfile
 
 SCHEMA = """
 CREATE TABLE Users (
@@ -63,6 +65,28 @@ CREATE TABLE InventoryLogs (
     FOREIGN KEY (part_id) REFERENCES SpareParts(id),
     FOREIGN KEY (user_id) REFERENCES Users(id)
 );
+
+-- ---------------------------------------------------------
+-- AI Agent Memory Tables (mirrors databases/schema.sql's
+-- EpisodicMemory / SemanticMemory, translated to SQLite so the
+-- demo agent can actually exercise memory writes end to end).
+-- ---------------------------------------------------------
+CREATE TABLE EpisodicMemory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    promotion_reason TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE SemanticMemory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fact_key TEXT NOT NULL,
+    fact_value TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 SEED = """
@@ -85,10 +109,51 @@ INSERT INTO AlternativeParts (part_id, alternative_part_id) VALUES (1, 2);
 """
 
 
-def build_demo_connection() -> sqlite3.Connection:
-    """Fresh in-memory SQLite connection, seeded, ready for the agent demo."""
-    conn = sqlite3.connect(":memory:")
+_DB_PATH: str | None = None
+
+
+def _new_seeded_db_path() -> str:
+    fd, path = tempfile.mkstemp(suffix=".sqlite", prefix="torque_tune_demo_")
+    os.close(fd)
+    conn = sqlite3.connect(path)
     conn.executescript(SCHEMA)
     conn.executescript(SEED)
     conn.commit()
+    conn.close()
+    return path
+
+
+def reset_demo_database() -> None:
+    """
+    Start a fresh, freshly-seeded demo database for one session.
+
+    Call this once at the start of a run (agent/client.py's main()) --
+    NOT on every get_connection() call. A plain ":memory:" database opened
+    fresh per call (the previous behavior) silently discards every write
+    between tool calls, which meant inventory updates never actually
+    stuck and memory writes (episodic/semantic) were invisible to any
+    later read in the same "session." This gives the whole demo run one
+    consistent, file-backed database that every get_connection() call
+    during that run reconnects to, while still giving each fresh run (and
+    each test) an isolated, reseeded starting point.
+    """
+    global _DB_PATH
+    old_path = _DB_PATH
+    _DB_PATH = _new_seeded_db_path()
+    if old_path and os.path.exists(old_path):
+        try:
+            os.remove(old_path)
+        except OSError:
+            pass
+
+
+def build_demo_connection() -> sqlite3.Connection:
+    """Connection to the current session's persistent demo database,
+    seeding one into existence on first use if reset_demo_database()
+    was never called explicitly."""
+    global _DB_PATH
+    if _DB_PATH is None:
+        _DB_PATH = _new_seeded_db_path()
+    conn = sqlite3.connect(_DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
