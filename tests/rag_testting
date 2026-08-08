@@ -1,9 +1,0 @@
-import sys
-sys.path.append('..')
-from keyword_search import KeywordStore
-
-store = KeywordStore()
-store.upsert("mild ear infection, prescribed drops", {"entity_id": "pet_42"})
-store.upsert("routine checkup, no notes", {"entity_id": "pet_99"})
-results = store.query("ear infection", top_k=2, filter={"entity_id": "pet_42"})
-print(results)
