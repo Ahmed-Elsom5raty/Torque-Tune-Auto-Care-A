@@ -1,28 +1,18 @@
 """
 mcp-server/rag/vector_store.py
 
-Step 2b of the RAG pipeline: a real vector database, not a list of floats
-in a Python dict. Three components, matching the lecture's "Vector
-Databases" slide:
+Step 2b of the RAG pipeline: a real vector database replacement using NumPy,
+avoiding the need for native C++ build tools (hnswlib).
 
-    1. Vector Index    -> hnswlib.Index (HNSW, real ANN search)
-    2. Metadata Store   -> self._payloads  (chunk text + metadata, keyed by id)
-    3. Metadata Index   -> self._metadata_index (inverted index: field value
-                            -> set of internal ids), used to PRE-filter the
-                            candidate set before similarity search runs, not
-                            just to filter the results afterwards.
-
-Why filtering matters here: a question like "what's the warranty on this
-CV joint" only needs doc_type == "warranty" chunks searched, and a
-question naming an exact bulletin should be restricted to chunks whose
-`identifiers` contain that code. Restricting the candidate set first is
-what makes hybrid search's exact-identifier matching (see hybrid_rag.py)
-cheap and precise instead of relying on embedding luck.
+Three components:
+    1. Vector Index    -> NumPy matrix storage (Cosine similarity via Dot Product)
+    2. Metadata Store  -> self._payloads  (chunk text + metadata, keyed by id)
+    3. Metadata Index  -> self._metadata_index (inverted index: field value
+                          -> set of internal ids), used to PRE-filter the
+                          candidate set before similarity search runs.
 """
 
 from dataclasses import dataclass
-
-import hnswlib
 import numpy as np
 
 from chunking import Chunk
@@ -38,21 +28,23 @@ class ScoredChunk:
 class VectorStore:
     def __init__(self, dim: int):
         self.dim = dim
-        # cosine space: hnswlib returns *distance* = 1 - cosine_similarity
-        self._index = hnswlib.Index(space="cosine", dim=dim)
-        self._index.init_index(max_elements=1000, ef_construction=200, M=16)
-        self._index.set_ef(50)
-
         self._next_id = 0
-        self._payloads: dict[int, Chunk] = {}          # Metadata (payload) store
+        self._payloads: dict[int, Chunk] = {}           # Metadata (payload) store
         self._metadata_index: dict[str, set[int]] = {}  # field:value -> {ids}
+        self._vectors: dict[int, np.ndarray] = {}       # internal_id -> vector array
 
     # ---- indexing -------------------------------------------------
     def upsert(self, chunk: Chunk, vector: np.ndarray) -> int:
         internal_id = self._next_id
         self._next_id += 1
 
-        self._index.add_items(vector.reshape(1, -1), np.array([internal_id]))
+        # L2-normalize the vector for easy Cosine Similarity via Dot Product
+        v = np.array(vector, dtype=np.float32).flatten()
+        norm = np.linalg.norm(v)
+        if norm > 0:
+            v = v / norm
+
+        self._vectors[internal_id] = v
         self._payloads[internal_id] = chunk
 
         # Build the metadata index: one entry per filterable field/value.
@@ -80,7 +72,7 @@ class VectorStore:
             candidate_sets.append(self._metadata_index.get(key, set()))
         if not candidate_sets:
             return set()
-        result = candidate_sets[0]
+        result = candidate_sets[0].copy()
         for s in candidate_sets[1:]:
             result = result & s
         return result
@@ -94,31 +86,32 @@ class VectorStore:
     ) -> list[ScoredChunk]:
         candidate_ids = self._filtered_candidate_ids(filters)
 
+        # Determine which internal IDs to search
         if candidate_ids is not None:
-            # Metadata-filtered path: candidate set is already restricted
-            # by the metadata index, so we score only those (brute-force
-            # cosine over a small candidate set is exact and still cheap --
-            # this *is* the "filter before/during search" the assignment
-            # asks for, versus running ANN over everything then discarding).
             if not candidate_ids:
                 return []
             ids = sorted(candidate_ids)
-            vectors = np.stack([self._get_vector(i) for i in ids])
-            sims = vectors @ query_vector  # both L2-normalized -> cosine sim
-            ranked = sorted(zip(ids, sims), key=lambda x: x[1], reverse=True)[:top_k]
-            return [ScoredChunk(self._payloads[i], float(s)) for i, s in ranked]
+        else:
+            if not self._vectors:
+                return []
+            ids = sorted(self._vectors.keys())
 
-        # Unfiltered path: real ANN search over the whole HNSW index.
-        k = min(top_k, self._next_id) or 1
-        labels, distances = self._index.knn_query(query_vector.reshape(1, -1), k=k)
-        results = []
-        for label, dist in zip(labels[0], distances[0]):
-            similarity = 1.0 - float(dist)
-            results.append(ScoredChunk(self._payloads[int(label)], similarity))
-        return results
+        # Prepare normalized query vector
+        q = np.array(query_vector, dtype=np.float32).flatten()
+        q_norm = np.linalg.norm(q)
+        if q_norm > 0:
+            q = q / q_norm
+
+        # Matrix dot product for Cosine Similarity
+        matrix = np.stack([self._vectors[i] for i in ids])
+        sims = matrix @ q
+
+        # Rank and return top_k
+        ranked = sorted(zip(ids, sims), key=lambda x: x[1], reverse=True)[:top_k]
+        return [ScoredChunk(self._payloads[i], float(s)) for i, s in ranked]
 
     def _get_vector(self, internal_id: int) -> np.ndarray:
-        return np.array(self._index.get_items([internal_id])[0])
+        return self._vectors[internal_id]
 
 
 def build_vector_store(chunks: list[Chunk]) -> tuple[VectorStore, Embedder]:
@@ -138,7 +131,7 @@ if __name__ == "__main__":
     all_chunks = load_chunks()
     store, embedder = build_vector_store(all_chunks)
 
-    print("--- Unfiltered ANN search ---")
+    print("--- Unfiltered search ---")
     q = "is my alternator still under warranty"
     qvec = embedder.embed([q])[0]
     for r in store.query(qvec, top_k=3):
