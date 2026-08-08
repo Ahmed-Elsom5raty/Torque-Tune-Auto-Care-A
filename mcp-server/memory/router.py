@@ -105,4 +105,4 @@ class PromoteOrDropRouter:
         return "\n".join(
             f"[{i}] [{msg.role}] {msg.content}" for i, msg in enumerate(messages)
         )
-ent_str for keyword in keywords)
+
