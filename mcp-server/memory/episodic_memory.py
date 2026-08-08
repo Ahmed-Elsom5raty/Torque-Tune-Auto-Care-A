@@ -1,4 +1,4 @@
-mport json
+import json
 from typing import List, Dict, Any
 from databases.db import get_connection
 
